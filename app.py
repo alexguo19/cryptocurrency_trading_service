@@ -1,9 +1,4 @@
 # app.py
-# Streamlit 管理台：
-# - 编辑并保存 config.yaml
-# - 查看 /state（仓位、移动止损、收益估算、最近信号/动作）
-# - 管理操作（暂停/恢复/只平不反手/紧急平仓）：带 X-ADMIN-SECRET
-
 import time
 import yaml
 import requests
@@ -11,8 +6,6 @@ import streamlit as st
 from pathlib import Path
 
 CONFIG_PATH = Path("config.yaml")
-
-# 生产建议：用 Nginx 或安全组限制访问
 API_BASE = st.secrets.get("API_BASE", "http://127.0.0.1:8000")
 
 
@@ -37,66 +30,53 @@ def api_post(path: str, payload: dict | None = None, admin_secret: str | None = 
     headers = {}
     if admin_secret:
         headers["X-ADMIN-SECRET"] = admin_secret
-    r = requests.post(f"{API_BASE}{path}", json=payload or {}, headers=headers, timeout=8)
+    r = requests.post(f"{API_BASE}{path}", json=payload or {}, headers=headers, timeout=12)
     r.raise_for_status()
     return r.json()
 
 
 st.set_page_config(page_title="OKX USDT Perpetual Bot", layout="wide")
-st.title("OKX USDT 永续 · Neural Momentum 自动交易控制台")
+st.title("OKX USDT 永续 · Neural Momentum 自动交易控制台（增强版）")
 
 cfg = load_cfg()
 admin_secret = cfg.get("admin", {}).get("secret", "")
 
-# -------------------------
-# Sidebar: 配置编辑
-# -------------------------
 with st.sidebar:
     st.header("配置编辑（config.yaml）")
 
     st.subheader("运行参数")
     cfg["app"]["poll_interval_sec"] = st.number_input(
-        "止损检查周期(秒)",
-        min_value=30,
-        value=int(cfg["app"]["poll_interval_sec"]),
-        step=30
+        "止损检查周期(秒)", min_value=30,
+        value=int(cfg["app"]["poll_interval_sec"]), step=30
+    )
+    # ✅ 新增：对账周期
+    if "reconcile_interval_sec" not in cfg["app"]:
+        cfg["app"]["reconcile_interval_sec"] = 600
+    cfg["app"]["reconcile_interval_sec"] = st.number_input(
+        "对账周期(秒)", min_value=60,
+        value=int(cfg["app"]["reconcile_interval_sec"]), step=60
     )
 
     st.subheader("交易参数")
-    cfg["trade"]["leverage"] = st.number_input(
-        "杠杆",
-        min_value=1,
-        max_value=50,
-        value=int(cfg["trade"]["leverage"])
-    )
+    cfg["trade"]["leverage"] = st.number_input("杠杆", min_value=1, max_value=50, value=int(cfg["trade"]["leverage"]))
     cfg["trade"]["margin_mode"] = st.selectbox(
-        "保证金模式",
-        ["cross", "isolated"],
+        "保证金模式", ["cross", "isolated"],
         index=0 if cfg["trade"]["margin_mode"] == "cross" else 1
     )
 
     st.subheader("移动止损")
-    cfg["trailing_stop"]["enabled"] = st.checkbox(
-        "启用移动止损",
-        value=bool(cfg["trailing_stop"]["enabled"])
-    )
+    cfg["trailing_stop"]["enabled"] = st.checkbox("启用移动止损", value=bool(cfg["trailing_stop"]["enabled"]))
     cfg["trailing_stop"]["initial_trail_pct"] = st.number_input(
-        "初始移动止损(%)",
-        min_value=0.1,
-        value=float(cfg["trailing_stop"]["initial_trail_pct"]),
-        step=0.1
+        "初始移动止损(%)", min_value=0.1,
+        value=float(cfg["trailing_stop"]["initial_trail_pct"]), step=0.1
     )
     cfg["trailing_stop"]["tighten_trigger_profit_pct"] = st.number_input(
-        "收益触发点(%)",
-        min_value=0.1,
-        value=float(cfg["trailing_stop"]["tighten_trigger_profit_pct"]),
-        step=0.1
+        "收益触发点(%)", min_value=0.1,
+        value=float(cfg["trailing_stop"]["tighten_trigger_profit_pct"]), step=0.1
     )
     cfg["trailing_stop"]["tightened_trail_pct"] = st.number_input(
-        "收紧后止损(%)",
-        min_value=0.05,
-        value=float(cfg["trailing_stop"]["tightened_trail_pct"]),
-        step=0.05
+        "收紧后止损(%)", min_value=0.05,
+        value=float(cfg["trailing_stop"]["tightened_trail_pct"]), step=0.05
     )
 
     if st.button("保存配置", type="primary"):
@@ -108,10 +88,7 @@ with st.sidebar:
     if not admin_secret or "CHANGE_ME" in admin_secret:
         st.warning("admin.secret 似乎未正确配置（控制按钮会被拒绝）")
 
-# -------------------------
-# Main: 状态与控制
-# -------------------------
-colA, colB, colC = st.columns([1.2, 1, 1])
+colA, colB, colC = st.columns([1.4, 1, 1])
 
 with colA:
     st.subheader("运行控制（Admin）")
@@ -121,12 +98,14 @@ with colA:
         paused = bool(runtime.get("paused", False))
         close_only = bool(runtime.get("close_only", False))
         reason = runtime.get("pause_reason", "")
+        last_reconcile = runtime.get("last_reconcile", None)
 
         st.write(f"**Paused:** {paused}  |  **Close-only:** {close_only}")
         if paused and reason:
             st.warning(f"暂停原因：{reason}")
+        st.write(f"**Last Reconcile:** {last_reconcile}")
 
-        c1, c2, c3, c4 = st.columns(4)
+        c1, c2, c3, c4, c5 = st.columns(5)
         with c1:
             if st.button("暂停交易"):
                 api_post("/control/pause", {"paused": True, "reason": "manual"}, admin_secret=admin_secret)
@@ -140,9 +119,14 @@ with colA:
                 api_post("/control/close_only", {"close_only": True}, admin_secret=admin_secret)
                 st.rerun()
         with c4:
-            if st.button("恢复正常模式"):
+            if st.button("恢复正常"):
                 api_post("/control/close_only", {"close_only": False}, admin_secret=admin_secret)
                 st.rerun()
+        with c5:
+            if st.button("立即对账"):
+                res = api_post("/control/reconcile", {}, admin_secret=admin_secret)
+                st.success("对账完成")
+                st.json(res)
 
     except Exception as e:
         st.error(f"无法获取 /state：{e}")
@@ -154,12 +138,12 @@ with colB:
         symbols = cfg["trade"]["symbols"]
         sym = st.selectbox("选择交易对", symbols)
 
-        c1, c2 = st.columns(2)
-        with c1:
+        b1, b2 = st.columns(2)
+        with b1:
             if st.button("紧急平仓（单个）", type="secondary"):
                 res = api_post("/control/emergency_close", {"symbol": sym}, admin_secret=admin_secret)
                 st.json(res)
-        with c2:
+        with b2:
             if st.button("紧急全平（全部）", type="primary"):
                 res = api_post("/control/emergency_close_all", {}, admin_secret=admin_secret)
                 st.json(res)
@@ -175,15 +159,11 @@ with colC:
         st.rerun()
 
 st.divider()
-
-# -------------------------
-# 仓位状态
-# -------------------------
 st.subheader("仓位状态（positions）")
+
 try:
     state = api_get("/state")
     positions = state.get("positions", {})
-
     if not positions:
         st.info("暂无仓位状态（可能未触发任何信号）")
     else:
@@ -209,6 +189,5 @@ try:
     st.json(runtime.get("last_signal", {}))
     st.write("**last_action**")
     st.json(runtime.get("last_action", {}))
-
 except Exception as e:
     st.error(f"状态展示失败：{e}")

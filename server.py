@@ -1,9 +1,4 @@
 # server.py
-# FastAPI 服务：
-# - /webhook/tradingview 接收 TradingView BUY/SELL
-# - /state 返回本地状态（不加密，方便面板；如需可加密）
-# - /control/* 管理操作（必须 Header: X-ADMIN-SECRET）
-
 import time
 import yaml
 from fastapi import FastAPI, HTTPException, Header
@@ -33,8 +28,8 @@ engine = TradeEngine(cfg)
 
 class TVSignal(BaseModel):
     secret: str
-    symbol: str          # e.g. OKX:BTCUSDT.P
-    action: str          # BUY / SELL
+    symbol: str
+    action: str
     time: str | None = None
     timeframe: str | None = None
     price: str | None = None
@@ -48,7 +43,6 @@ def health():
 
 @app.get("/state")
 def state():
-    # 读配置热加载，便于面板显示最新配置摘要
     cfg_now = load_config()
     engine.reload_config(cfg_now)
     return engine.get_state()
@@ -59,7 +53,6 @@ def webhook_tradingview(payload: TVSignal):
     cfg_now = load_config()
     engine.reload_config(cfg_now)
 
-    # Webhook secret 校验，防伪造信号
     if payload.secret != cfg_now["webhook"]["secret"]:
         raise HTTPException(status_code=401, detail="invalid webhook secret")
 
@@ -142,3 +135,13 @@ def control_emergency_close_all(
     engine.reload_config(cfg_now)
     require_admin(x_admin_secret, cfg_now)
     return engine.emergency_close_all()
+
+
+@app.post("/control/reconcile")
+def control_reconcile(
+    x_admin_secret: str | None = Header(default=None, alias="X-ADMIN-SECRET"),
+):
+    cfg_now = load_config()
+    engine.reload_config(cfg_now)
+    require_admin(x_admin_secret, cfg_now)
+    return engine.reconcile_positions(reason="manual_api")

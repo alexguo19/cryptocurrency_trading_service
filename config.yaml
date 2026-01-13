@@ -2,6 +2,7 @@ app:
   env: "prod"
   timezone: "Asia/Shanghai"
   poll_interval_sec: 300          # 每5分钟更新移动止损/检查触发
+  reconcile_interval_sec: 600     # 每10分钟对账一次（可调）
   log_level: "INFO"
 
 webhook:

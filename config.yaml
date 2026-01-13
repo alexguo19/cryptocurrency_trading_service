@@ -1,0 +1,53 @@
+app:
+  env: "prod"
+  timezone: "Asia/Shanghai"
+  poll_interval_sec: 300          # 每5分钟更新移动止损/检查触发
+  log_level: "INFO"
+
+webhook:
+  host: "0.0.0.0"
+  port: 8000
+  secret: "CHANGE_ME_TV_WEBHOOK_SECRET_LONG_RANDOM"
+
+admin:
+  secret: "CHANGE_ME_ADMIN_LONG_RANDOM"
+
+exchange:
+  name: "okx"
+  market_type: "swap"             # 永续
+  settle: "USDT"
+  api_key: "YOUR_OKX_API_KEY"
+  api_secret: "YOUR_OKX_API_SECRET"
+  password: "YOUR_OKX_PASSPHRASE" # OKX passphrase 在 ccxt 里字段名是 password
+  enable_rate_limit: true
+
+trade:
+  symbols:
+    - "BTC/USDT:USDT"
+    - "ETH/USDT:USDT"
+  leverage: 5
+  margin_mode: "cross"            # 全仓：cross；逐仓：isolated
+  order_type: "market"            # 市价
+  qty_mode: "base"                # base=按币数量；quote=按U数量
+  qty_base:
+    "BTC/USDT:USDT": 0.3
+    "ETH/USDT:USDT": 2.0
+  qty_quote:
+    "BTC/USDT:USDT": 1000
+    "ETH/USDT:USDT": 1000
+
+strategy:
+  timeframe: "1h"
+  reverse_on_opposite_signal: true
+  ignore_same_direction_signal: true
+
+trailing_stop:
+  enabled: true
+  initial_trail_pct: 3.0
+  tighten_trigger_profit_pct: 1.0
+  tightened_trail_pct: 0.1
+  min_trail_pct: 0.1
+
+runtime:
+  lock_per_symbol: true
+  dedup_same_bar: true
